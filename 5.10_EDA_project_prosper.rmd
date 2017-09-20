@@ -16,6 +16,7 @@ library(dplyr)
 library(tidyr)
 library(gridExtra)
 library(memisc)
+library(gridExtra)
 
 ```
 
@@ -51,8 +52,6 @@ dim(pdata)
 #### Monthly loan volume
 Prosper data starts in November 2005 with a total monthly origination amount of about \$50,000 (Chart A).  Origination ramps up quickly and peaks near the $10 million on May 2008, before dropping to zero by November 2008 as the financial crisis halts lending activities.  Lending starts again in May 2009 and ramps up quickly, especially in 2013.  In January of 2014, lending peaks near \$70 million.  The data series end at March 2014 with \$22 million.  The sharp drop in March may be it may be an incomplete data set for the month.
 
-One thing I found out while researching about Prosper was that the lending process for Prosper changed from the auction model to fixed pricing in December 19, 2010 (http://www.lendacademy.com/prosper-com-ending-their-auction-process-dec-19th/)
-
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # make a origination month into date format
 pdata$LoanOrigDateFormat <- as.Date(pdata$LoanOriginationDate,
@@ -61,17 +60,19 @@ pdata$LoanOrigYearMonth <- as.Date(
   cut(pdata$LoanOrigDateFormat, breaks='month'))
 
 # bar chart of monthly loan volume
-ggplot(aes(y=LoanOriginalAmount/1000000,x=LoanOrigYearMonth), 
+ggplot(aes(y=LoanOriginalAmount/1000000,x=factor(LoanOrigYearMonth)), 
        data=pdata) +
   geom_bar(stat='summary', fun.y=sum) +
-  scale_x_discrete(name='Loan Origination Month') +
-  scale_y_continuous(limits = c(0,70), name = 'Loan Orig Amt ($mil)') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_x_discrete(name='Loan Origination Month',
+                   breaks=function(x) x[seq(1, length(x), by=3)]) +
   ggtitle('Chart A: Monthly loan origination amount time series')
 
 # monthly volume- highlighted out
 #by(pdata$LoanOriginalAmount, pdata$LoanOrigYearMonth, sum)
 ```
 
+One thing I found out while researching about Prosper was that the lending process for Prosper changed from the auction model to fixed pricing in December 19, 2010 (http://www.lendacademy.com/prosper-com-ending-their-auction-process-dec-19th/)
 
 With the change in the lending process, the interest rates borrowers were being charged will likely have changed as well.  In the auction model, lenders were bidding the interest rate while Propser assigned the interest rate in the fixed pricing model.  With the change in the lending, there were also changes in data available.  For example, 'CreditGrade' variable was used in the auction based model compared to 'ProsperRating..Alpha.' after the change.  The interest rate environment has also changed since pre- and post-financial crisis period.  Due to these reasons, I decided to cut out data prior to January 2011. 
 
@@ -87,6 +88,7 @@ dim(pdata.post2011)
 
 #### Monthly borrower rates
 It looks like the median monthly borrower rates of originated loans decline from around 27% in first half of 2012 to 14% by early 2014 (Chart B).  Interquartile range also has shrunk during the period. There may be several explanations for the decline in borrower rates.  
+
 * One explanation may be it was because benchmark interest rates have decreased during the period.  However, this was not the case looking at the 3-year and 5-year Treasury rate on the St.Louis Fed's FRED website (https://fred.stlouisfed.org/series/DGS5).  
 * Another possibility is that the spreads between lending rates and benchmark rates has tightened, leading to lower rates.  
 * It is also possible that the proportion of high quality borrowers in Prosper's origination have increased during this period.  Average borrower rates also declined from 20%-25% in the first half of 2012 to 15% in early 2014.
@@ -111,8 +113,138 @@ ggplot(aes(x=LoanMthFactor, y=BorrowerRate),
 ```
 
 
+#### Prosper borrower rating vs borrower rate
+While I will not use the Prosper borrower ratings in the predictive model given that this is a Prosper generated data, it may be useful to see how the borrower rates and Prosper rating relate.  Prosper rating is in the following order with 'AA' being the best: 'AA', 'A', 'B', 'C', 'D', 'E', 'HR'.  Chart C shows the histogram of the ProsperRating.  Two lowest counts are the extreme ratings of 'AA' and 'HR' at 4389 and 5804, respectively, while 'C' rated borrowers are highest at 17112.
+
+```{r borr_rating_histogram, echo=FALSE, message=FALSE, warning=FALSE}
+
+# create an ordered rating column
+summary(pdata.post2011$ProsperRating..Alpha.)
+pdata.post2011$orderedRating <- factor(pdata.post2011$ProsperRating..Alpha.,
+      levels=c('AA','A','B','C','D','E','HR'), ordered=TRUE)
+summary(pdata.post2011$orderedRating)
+
+# histogram of Prosper rating
+#qplot(data = pdata.post2011, x = orderedRating) + 
+#  ggtitle('Chart C: histogram of Prosper rating')
+ggplot(data=pdata.post2011, aes(x=orderedRating)) +
+  geom_histogram(stat='count') + 
+  ggtitle('Chart C: histogram of Prosper rating')
+
+
+```
+
+
+
+Chart D shows the boxplot of borrower rates for each ratings.  As expected, borrower rate increases as rating worsens.  For example, median borrower rate for 'AA' borrower is 7.69% and 'A' borrower is 11.4%.  Borrower rate increases as rating worsens with median 'HR' borrower rate at 31.8%.
+
+
+```{r ratingvsrate, echo=FALSE, message=FALSE, warning=FALSE}
+# boxplot of borrower rate for each Prosper rating
+ggplot(aes(x=orderedRating, y=BorrowerRate), 
+       data=pdata.post2011) +
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 1)) +
+  geom_point(stat = 'summary', fun.y=mean, 
+             aes(colour ='avg borrower rate')) + 
+  ggtitle('Chart D: Boxplot of borrower rate for each Prosper Rating')
+
+#by(pdata.post2011$BorrowerRate, 
+#   pdata.post2011$orderedRating, summary)
+
+```
+
+
+
+Chart E shows the monthly count of loans by Prosper rating.  While it looks like all rating showed increases, 'C' showed the highest increase as over 1500 loans of 'C' rating was originated in January 2014.  Volume for 'A'- and 'B'-rated loans also incresed sharply, while others showed much smaller increases.
+
+
+```{r ratingcount, echo=FALSE, message=FALSE, warning=FALSE}
+
+# line chart of monthly loan count by rating
+ggplot(aes(x=LoanMthFactor, group=orderedRating), 
+       data=pdata.post2011) +
+  geom_line(aes(color=orderedRating),stat='count') + 
+  scale_x_discrete(name='Loan Origination Month',
+                   breaks=function(x) x[seq(1, length(x), by=3)]) +
+  facet_wrap(~orderedRating) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggtitle('Chart E: Monthly loan count by Prosper rating')
+
+```
+
+
+Chart F shows the proportion of each rating type per month.  It looks like 'C' rating grew the most in proportion-wise, going from less than 10% of the loan count in early 2012 to 30% in 2014. 'A' also increased from 10% in 2010 to 25% in early 2014. Meanwhile, proportion of 'D' and 'E' decreased.  Proportion of 'D' went from almost 40% in 2012 to 10% in 2014.
+
+```{r ratingproportion, echo=FALSE, message=FALSE, warning=FALSE, fig.height=11}
+
+# create a new data to plot a proportion chart
+ratingData <- pdata.post2011 %>%
+  dplyr::select(orderedRating, LoanMthFactor) %>%
+  group_by(LoanMthFactor) %>%
+  summarise(AA=sum(orderedRating=='AA'), A=sum(orderedRating=='A'),
+            B=sum(orderedRating=='B'), C=sum(orderedRating=='C'),
+            D=sum(orderedRating=='D'), E=sum(orderedRating=='E'),
+            HR=sum(orderedRating=='HR'), TOT=AA+A+B+C+D+E+HR,
+            AApct=AA/TOT, Apct=A/TOT, Bpct=B/TOT, Cpct=C/TOT,
+            Dpct=D/TOT, Epct=E/TOT, HRpct=HR/TOT) 
+  
+# head(ratingData)
+
+# function to graph the proprtion line chart
+pctGraph <- function(yname, cname) {
+  return(
+    ggplot(aes(x=ratingData$LoanMthFactor, y=yname, group = 1), 
+           data=ratingData) + 
+      geom_line() +
+      ylim(c(0,0.4)) +
+      scale_x_discrete(name='Loan Origination Month',
+                       breaks=function(x) x[seq(1, length(x), by=3)]) +
+      labs(x='year-month', y='proportion') +
+      theme(text = element_text(size=10),
+            axis.text.x = element_text(angle = 90, hjust = 1)) +
+      ggtitle(cname)
+  )
+}
+
+gAA <- pctGraph(ratingData$AApct, 'Chart F: AA pct')
+gA <-pctGraph(ratingData$Apct, 'A pct')
+gB <-pctGraph(ratingData$Bpct, 'B pct')
+gC <-pctGraph(ratingData$Cpct, 'C pct')
+gD <-pctGraph(ratingData$Dpct, 'D pct')
+gE <-pctGraph(ratingData$Epct, 'E pct')
+gHR <-pctGraph(ratingData$HRpct, 'HR pct')
+
+# line chart of monthly proportion by rating
+grid.arrange(gAA, gA, gB, gC, gD, gE, gHR, ncol=2)
+
+
+
+```
+
+
+I decided to also look at time series of borrower rates per rating type to see if there is any trend.  Chart G shows that the borrower rates fluctate over the period for each rating type.  For example, average borrower rates for C-rated borrowers were 19%-20% during the first nine months of 2012.  It increased to 22%-23% from October 2012 to August of 2013.  It drifted down since then and averaged 17% in March 2014.  Average rates for D-rated borrowers were 28% in January 2012 and came down to 21% in March 2014.  If the borrower characteristics were similar for each rated borrowers during this period, fluctuations in borrower rates over time indicate that there were some model changes during the period, which may result in a less robust predictive model.
+
+```{r ratebyrating, echo=FALSE, message=FALSE, warning=FALSE, fig.height=11}
+
+ggplot(aes(x=LoanMthFactor, y=BorrowerRate), 
+       data=pdata.post2011) +
+  geom_boxplot() + 
+  scale_x_discrete(name='Loan Origination Month',
+                  breaks=function(x) x[seq(1, length(x), by=3)]) +
+  facet_wrap(~orderedRating, ncol = 2) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_point(stat = 'summary', fun.y=mean, 
+             aes(colour ='avg borrower rate')) + 
+  ggtitle('Chart G: Boxplot of borrower rate for each Prosper Rating')
+
+```
+
+
+
+
 #### Credit score versus borrower rate
-To build a predictive model of borrower rate, I will check several variables in the dataset to potentially use as independent variables.  First one that stood out was the credit score.  There were two credit score variables: 'CreditScoreRangeLower' and 'CreditScoreRangeUpper'.  I compared the two to see what the differences are.  Chart C shows that the 'CreditScoreRangeUpper' is always 199 higher than the 'CreditScoreRangeLower'.  
+To build a predictive model of borrower rate, I will check several variables in the dataset to potentially use as independent variables.  First one that stood out was the credit score.  There were two credit score variables: 'CreditScoreRangeLower' and 'CreditScoreRangeUpper'.  I compared the two to see what the differences are.  Chart H shows that the 'CreditScoreRangeUpper' is always 199 higher than the 'CreditScoreRangeLower'.  
 
 
 ```{r credscrcheck, echo=FALSE, message=FALSE, warning=FALSE}
@@ -120,7 +252,7 @@ To build a predictive model of borrower rate, I will check several variables in 
 ggplot(aes(x=CreditScoreRangeLower,
            y=CreditScoreRangeUpper), data=pdata.post2011) +
   geom_point() + 
-  ggtitle('Chart C: Scatterplot of credit score range lower vs upper')
+  ggtitle('Chart H: Scatterplot of credit score range lower vs upper')
 
 # table to see the exact values of credit score range lower & upper
 #by(pdata.post2011$CreditScoreRangeUpper, 
@@ -128,26 +260,32 @@ ggplot(aes(x=CreditScoreRangeLower,
 
 ```
 
-Unlike the borrower rates, credit score did not decline much throughout the period (Chart D).  Chart E shows that the there is some negative relationship between credit score and borrower rate.  Correlation is -0.48, which confrims the negative relationship.  Correlation improves marginally to -0.51 by using the log of the borrower rate.  The median credit score has been 700 since August 2011 to August 2013, but has dropped to 680 from Septeber 2013 to March 2014, except in January and February of 2014.
+Unlike the borrower rates, credit score did not decline much throughout the period (Chart I).  
 
 ```{r credscr, echo=FALSE, message=FALSE, warning=FALSE}
 # Boxplot of monthly borrower rates of originated loans
-p1 <- ggplot(aes(x=LoanMthFactor, y=CreditScoreRangeLower), 
+ggplot(aes(x=LoanMthFactor, y=CreditScoreRangeLower), 
        data=pdata.post2011) +
   geom_boxplot() + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   geom_point(stat = 'summary', fun.y=mean, 
              aes(colour ='avg credit score')) + 
-  ggtitle('Chart D: Boxplot of credit score')
+  ggtitle('Chart I: Boxplot of credit score')
+
+
+```
+
+
+Chart J shows that the there is some negative relationship between credit score and borrower rate.  Correlation is -0.48, which confrims the negative relationship.  Correlation improves marginally to -0.51 by using the log of the borrower rate.  The median credit score has been 700 since August 2011 to August 2013, but has dropped to 680 from Septeber 2013 to March 2014, except in January and February of 2014.
+
+```{r credscrgeompoint, echo=FALSE, message=FALSE, warning=FALSE}
 
 # scatter plot of credit score and borrower rate
-p2 <- ggplot(aes(x=CreditScoreRangeLower, y=BorrowerRate),
+ggplot(aes(x=CreditScoreRangeLower, y=BorrowerRate),
        data=pdata.post2011) +
   geom_point(alpha = 1/20,
              position=position_jitter(h=0)) +
-  ggtitle('Chart E: Scatterplot of credit score vs borrower rate')
-
-grid.arrange(p1, p2,ncol=1)
+  ggtitle('Chart J: Scatterplot of credit score vs borrower rate')
 
 # correlation of credit score vs borrower rate; also using the log scale
 cor.test(pdata.post2011$CreditScoreRangeLower,
@@ -160,7 +298,7 @@ cor.test(pdata.post2011$CreditScoreRangeLower,
 
 
 #### Debt-to-income ratio versus borrower rate
-Next, I will investigate debt-to-income (DTI) ratio.  Not only were there 6449 rows of missing data looking at the summary of the column, there were outlier data, which were removed from the graphs.  Chart F shows that DTI has steadily increased from 2012 to 2014, which contradicts the decreasing borrower rate because higher DTI borrowers are more risky borrowers.  Chart G shows that there seems to be only a slight positive correlation in the low to mid-high DTI levels.  As seen below, correlation of the DTI to borrower rate is 0.13.
+Next, I will investigate debt-to-income (DTI) ratio.  Not only were there 6449 rows of missing data looking at the summary of the column, there were outlier data.  For example, the max DTI was 10.010 while the median and 3rd quartile was 0.23 and 0.32, respectively.  Outliers were removed from the graphs.  Chart K shows that DTI has steadily increased from 2012 to 2014, which contradicts the decreasing borrower rate because higher DTI borrowers are more risky borrowers.  Chart L shows that there seems to be only a slight positive correlation in the low to mid-high DTI levels.  As seen below, correlation of the DTI to borrower rate is 0.13.
 
 ```{r dti, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -175,7 +313,7 @@ p1 <- ggplot(aes(x=LoanMthFactor, y=DebtToIncomeRatio),
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   geom_point(stat = 'summary', fun.y=mean, 
              aes(colour ='avg DTI')) + 
-  ggtitle('Chart F: Boxplot of debt-to-income ratio')
+  ggtitle('Chart K: Boxplot of debt-to-income ratio')
 
 # scatter plot of DTI and borrower rate
 p2 <- ggplot(aes(x=DebtToIncomeRatio, y=BorrowerRate),
@@ -184,7 +322,7 @@ p2 <- ggplot(aes(x=DebtToIncomeRatio, y=BorrowerRate),
              position=position_jitter(h=0)) +
   xlim(0, quantile(subset(pdata.post2011$DebtToIncomeRatio,
                 !is.na(pdata.post2011$DebtToIncomeRatio)),0.95)) +
-  ggtitle('Chart G: Scatterplot of debt-to-income ratio vs borrower rate')
+  ggtitle('Chart L: Scatterplot of debt-to-income ratio vs borrower rate')
 
 grid.arrange(p1, p2,ncol=1)
 
@@ -196,7 +334,7 @@ cor.test(pdata.post2011$DebtToIncomeRatio,
 
 
 #### IncomeRange/StatedMonthlyIncome versus borrower rate
-There were two income variables which I cross-checked to verify: 'IncomeRange' and 'StatedMonthlyIncome'.   Chart H shows the cross-check of the two variables.  There were some outliers in stated monthly income, such as $1.75 million, which I removed from the chart. Based on the chart, annualized stated monthly income matches the income range, except for a few that fell below \$25,000 on the '\$25,000-49,999' income range.  
+There were two income variables which I cross-checked to verify: 'IncomeRange' and 'StatedMonthlyIncome'.   Chart M shows the cross-check of the two variables.  There were some outliers in stated monthly income, such as $1.75 million, which I removed from the chart. Based on the chart, annualized stated monthly income matches the income range, except for a few that fell below \$25,000 on the '\$25,000-49,999' income range.  
 
 ```{r incomecheck, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -216,34 +354,42 @@ ggplot(aes(x=IncomeRange, y=StatedMonthlyIncome*12),
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   geom_point(stat = 'summary', fun.y=mean, 
              aes(colour ='avg DTI')) + 
-  ggtitle('Chart H: Boxplot of annualized stated monthly income vs income range')
+  ggtitle('Chart M: Boxplot of annualized stated monthly income vs income range')
 
 
 ```
 
 
-Since stated monthly income provides more information than the income range, I used that to compare to borrower rate. Chart J shows that the relationship between the stated monthly income and borrower rate was a little fuzzy.  Correlation of the two variables were -0.09.
+Since stated monthly income provides more information than the income range, I used that to compare to borrower rate. Chart N shows that the monthly income has risen from \$4500 in summer of 2011 to \$5700 in March 2014.
 
 
 ```{r income, echo=FALSE, message=FALSE, warning=FALSE}
+
+by(pdata.post2011$StatedMonthlyIncome,
+   pdata.post2011$LoanMthFactor, summary)
 # Boxplot of monthly borrower StatedMonthlyIncome
-p1 <- ggplot(aes(x=LoanMthFactor, y=StatedMonthlyIncome), 
+ggplot(aes(x=LoanMthFactor, y=StatedMonthlyIncome), 
        data=pdata.post2011) +
   geom_boxplot() + 
   ylim(0, quantile(pdata.post2011$StatedMonthlyIncome,0.99)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   geom_point(stat = 'summary', fun.y=mean, 
-             aes(colour ='avg DTI')) + 
-  ggtitle('Chart I: Boxplot of Stated Monthly Income')
+             aes(colour ='mthly income')) + 
+  ggtitle('Chart N: Boxplot of Stated Monthly Income')
 
+
+```
+
+Chart O shows that the relationship between the stated monthly income and borrower rate was a little fuzzy.  Correlation of the two variables were -0.09.
+
+```{r incomegeompoint, echo=FALSE, message=FALSE, warning=FALSE}
 # scatter plot of StatedMonthlyIncome and borrower rate
-p2 <- ggplot(aes(x=StatedMonthlyIncome, y=BorrowerRate),
+ggplot(aes(x=StatedMonthlyIncome, y=BorrowerRate),
        data=pdata.post2011) +
   geom_point(alpha = 1/20) +
   xlim(0, quantile(pdata.post2011$StatedMonthlyIncome,0.99)) +
-  ggtitle('Chart J: Scatterplot of stated monthly income vs borrower rate')
+  ggtitle('Chart O: Scatterplot of stated monthly income vs borrower rate')
 
-grid.arrange(p1, p2,ncol=1)
 
 # correlation of StatedMonthlyIncome vs borrower rate
 cor.test(pdata.post2011$StatedMonthlyIncome,
@@ -254,10 +400,8 @@ cor.test(pdata.post2011$StatedMonthlyIncome,
 
 
 
-
-
 #### Income verifiable versus borrower rate
-Next, I observed the IncomeVerifiable column. Chart K shows that the borrower with verifiable income has lower borrower rates.  Median borrower rates with verifiable income is 0.18 while median rates for those that cannot be verified is 0.23.
+Next, I observed the IncomeVerifiable column. There were 70020 borrowers with verifiable income versus 6407 with non-verfiable income.  Chart P shows that the borrower with verifiable income has lower borrower rates.  Median borrower rates with verifiable income is 0.18 while median rates for those that cannot be verified is 0.23.
 
 ```{r incomeverifi, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -267,13 +411,17 @@ summary(pdata.post2011$IncomeVerifiable)
 ggplot(aes(x=IncomeVerifiable, y=BorrowerRate),
        data=pdata.post2011) +
   geom_boxplot() +
-  ggtitle('Chart K: Scatterplot of stated income verifiable vs borrower rate')
+  ggtitle('Chart P: Scatterplot of stated income verifiable vs borrower rate')
 
 ```
 
 
 #### Employment status versus borrower rate
-Chart L shows that unemployed borrowers have higher borrower rates than others.  Median rates was highest at 0.28 for unemployed borrowers while those flagged as employed was lowest at 0.18.
+Chart Q shows that unemployed borrowers have higher borrower rates than others.  There were 65083  'Employed' borrowers and another 2731 borrowers with 'Full-time' employment status.  Meanwhile, 581 were 'Not Employed'.  Other types include 'Self-employed' (4098 borrowers), 'Retired' (171), 'Part-time' (61) and 'Other' (3702).
+
+Median interest rates was highest at 0.28 for unemployed borrowers while those flagged as 'Employed' was lowest at 0.18.  The median rate for 'Not employed' looks to be significantly higher than the rest.
+
+
 
 ```{r emstatus, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -283,13 +431,14 @@ summary(pdata.post2011$EmploymentStatus)
 ggplot(aes(x=EmploymentStatus, y=BorrowerRate),
        data=pdata.post2011) +
   geom_boxplot() +
-  ggtitle('Chart L: Scatterplot of employment status vs borrower rate')
+  ggtitle('Chart Q: Scatterplot of employment status vs borrower rate')
 
 ```
 
 
 #### Employment status duration versus borrower rate
-EmploymentStatusDuration does not seem to have any correlation to borrower rates as seen on Chart M, thus I will not use it in the predictive model.  
+The median EmploymentStatusDuration was 76 with the min of 0 and max of 755. EmploymentStatusDuration does not seem to have much correlation to borrower rates as seen on Chart R, thus I will not use it in the predictive model.  
+
 
 ```{r emstatusdur, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -298,15 +447,15 @@ summary(pdata.post2011$EmploymentStatusDuration)
 # scatter plot of Employment status and borrower rate
 ggplot(aes(x=EmploymentStatusDuration, y=BorrowerRate),
        data=pdata.post2011) +
-  geom_point(alpha=1/5, aes(color=EmploymentStatus)) +
-  ggtitle('Chart M: Scatterplot of employment status duration vs borrower rate; 
-          colored by employment status')
+  geom_point(alpha=1/20) +
+  facet_wrap(~EmploymentStatus) +
+  ggtitle('Chart R: Scatterplot of employment status duration vs borrower rate by employment status')
 
 ```
 
 
 #### Homeownership versus borrower rate
-Homeowner borrowers had lower borrower rates than non-homeowners (Chart N).  Median rates for homeowners were 0.17 while it was 0.20 for non-homeowners.
+40440 borrowers, or around around 53% of the total, were homeowners compared to 35987 non-homeowners.  Homeowner borrowers had lower borrower rates than non-homeowners (Chart S).  Median rates for homeowners were 0.17 while it was 0.20 for non-homeowners.
 
 ```{r homeowner, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -316,12 +465,22 @@ summary(pdata.post2011$IsBorrowerHomeowner)
 ggplot(aes(x=IsBorrowerHomeowner, y=BorrowerRate),
        data=pdata.post2011) +
   geom_boxplot() +
-  ggtitle('Chart N: Scatterplot of IsBorrowerHomeowner vs borrower rate')
+  ggtitle('Chart S: Scatterplot of IsBorrowerHomeowner vs borrower rate')
+
+```
+
+Out of curiosity, I plotted the histogram of Prosper rating by homeownership.  While distribution for homeownership type are quite different.  Non-homeowners have a bell-curve shape with the peak at 'C' rating.  Meanwhile, larger proportions of homeowners are in higher quality ratings ('AA', 'A' and 'B').  This was expected because homeowners are expected to have higher financial stability than non-homeowners.
+
+```{r}
+ggplot(data=pdata.post2011, aes(x=orderedRating)) +
+  geom_histogram(stat='count') + 
+  facet_wrap(~IsBorrowerHomeowner) +
+  ggtitle('Chart T: histogram of Prosper rating by if borrower is homeowner')
 
 ```
 
 #### Term versus borrower rate
-Lending rates for shorter-term loans should be lower than longer-term loans.  Chart O shows that 1-year loans had lowest median rates at 0.14, while 3-year and 5-year were very close at 0.19.
+The most popular loan term was 3-year with 50629 borrrowers (66%), while there were 24197 5-year loans (32%) and 1601 1-year loans (2%).  Lending rates for shorter-term loans should be lower than longer-term loans.  Chart U shows that 1-year loans had lowest median rates at 0.14, while 3-year and 5-year were very close at 0.19.
 
 ```{r term, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -333,7 +492,7 @@ summary(pdata.post2011$Term)
 ggplot(aes(x=Term, y=BorrowerRate),
        data=pdata.post2011) +
   geom_boxplot() +
-  ggtitle('Chart O: Scatterplot of IsBorrowerHomeowner vs borrower rate')
+  ggtitle('Chart U: Scatterplot of IsBorrowerHomeowner vs borrower rate')
 
 
 ```
@@ -376,9 +535,6 @@ Given that the borrower rates has gotten lower over time period, it is possible 
 m8 <- update(m7, ~ . + LoanMthFactor)
 mtable(m8, sdigits=3)
 
-
-
-
 ```
 
 
@@ -390,11 +546,12 @@ mtable(m8, sdigits=3)
 
 ```{r plotone, echo=FALSE, message=FALSE, warning=FALSE}
 # bar chart of monthly loan volume
-ggplot(aes(y=LoanOriginalAmount/1000000,x=LoanOrigYearMonth), 
+ggplot(aes(y=LoanOriginalAmount/1000000,x=factor(LoanOrigYearMonth)), 
        data=pdata) +
   geom_bar(stat='summary', fun.y=sum) +
-  scale_x_discrete(name='Loan Origination Month') +
-  scale_y_continuous(limits = c(0,70), name = 'Loan Orig Amt ($mil)') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_x_discrete(name='Loan Origination Month',
+                   breaks=function(x) x[seq(1, length(x), by=3)]) +
   ggtitle('Monthly loan origination amount time series')
 
 
