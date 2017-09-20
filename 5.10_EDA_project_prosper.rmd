@@ -492,7 +492,7 @@ summary(pdata.post2011$Term)
 ggplot(aes(x=Term, y=BorrowerRate),
        data=pdata.post2011) +
   geom_boxplot() +
-  ggtitle('Chart U: Scatterplot of IsBorrowerHomeowner vs borrower rate')
+  ggtitle('Chart U: Scatterplot of loan term vs borrower rate')
 
 
 ```
